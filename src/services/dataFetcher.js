@@ -1,0 +1,346 @@
+import axios from "axios";
+import dayjs from "dayjs";
+import timezone from "dayjs/plugin/timezone.js";
+import utc from "dayjs/plugin/utc.js";
+import { config } from "../config/index.js";
+import { logger } from "../utils/logger.js";
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
+
+/**
+ * 全局Cookie存储（从浏览器获取）
+ */
+let globalCookie = "";
+
+/**
+ * 设置全局Cookie
+ * @param {string} cookie - Cookie字符串
+ */
+export function setGlobalCookie(cookie) {
+  globalCookie = cookie;
+}
+
+/**
+ * 获取需要处理的短剧ID列表
+ * @returns {Promise<string[]>} 短剧ID数组
+ */
+export async function fetchPendingDramaIds() {
+  try {
+    logger.info("开始获取待处理剧集...");
+
+    // 1. 获取今天、明天、后天的剧集列表
+    const dramaList = await fetchDramaList();
+    logger.info(`获取到 ${dramaList.length} 个剧集`);
+
+    // 2. 获取下载任务列表
+    const downloadTasks = await fetchDownloadTasks();
+    logger.info(`获取到 ${downloadTasks.length} 个下载任务`);
+
+    // 3. 筛选出没有下载任务或下载失败的剧集
+    const pendingDramas = filterPendingDramas(dramaList, downloadTasks);
+    logger.info(`筛选出 ${pendingDramas.length} 个待处理剧集`);
+
+    // 打印所有待处理剧集的信息
+    if (pendingDramas.length > 0) {
+      logger.info("待处理剧集列表（排序前）:");
+      pendingDramas.forEach((drama, index) => {
+        const publishDate = dayjs(drama.publish_time)
+          .tz("Asia/Shanghai")
+          .format("YYYY-MM-DD HH:mm");
+        logger.info(
+          `  ${index + 1}. ${drama.series_name} (发布时间: ${publishDate})`,
+        );
+      });
+    }
+
+    // 4. 按照发布时间排序：今天 > 明天 > 后天
+    const sortedDramas = sortDramasByPublishTime(pendingDramas);
+
+    // 5. 只取前N个（配置的批次大小）
+    const batchDramas = sortedDramas.slice(0, config.batchSize);
+    const dramaIds = batchDramas.map((d) => d.book_id);
+
+    // 打印详细的处理剧集信息
+    logger.info(
+      `\n本次将处理 ${batchDramas.length} 个剧集（按优先级排序：今天 > 明天 > 后天）:`,
+    );
+    batchDramas.forEach((drama, index) => {
+      const now = dayjs().tz("Asia/Shanghai");
+      const today = now.startOf("day");
+      const tomorrow = today.add(1, "day");
+      const publishTime = dayjs(drama.publish_time).tz("Asia/Shanghai");
+      const publishDate = publishTime.startOf("day");
+
+      let dayLabel = "";
+      if (publishDate.isSame(today, "day")) {
+        dayLabel = "【今天】";
+      } else if (publishDate.isSame(tomorrow, "day")) {
+        dayLabel = "【明天】";
+      } else {
+        dayLabel = "【后天】";
+      }
+
+      const publishDateStr = publishTime.format("YYYY-MM-DD HH:mm");
+      logger.info(
+        `  ${index + 1}. ${dayLabel} ${drama.series_name} (ID: ${drama.book_id}, 发布时间: ${publishDateStr})`,
+      );
+    });
+
+    return dramaIds;
+  } catch (error) {
+    logger.error(`获取待处理剧集失败: ${error.message}`);
+    throw error;
+  }
+}
+
+/**
+ * 获取今天、明天、后天的剧集列表
+ */
+async function fetchDramaList() {
+  const now = dayjs().tz("Asia/Shanghai");
+  const today = now.startOf("day");
+  const tomorrow = today.add(1, "day");
+  const dayAfterTomorrow = today.add(2, "day");
+
+  // 并发请求3页数据（不传drama_list_table_id，直接从常读平台获取所有剧集）
+  const [result1, result2, result3] = await Promise.all([
+    fetchDramaPage(0),
+    fetchDramaPage(1),
+    fetchDramaPage(2),
+  ]);
+
+  // 合并并去重
+  const allDramas = [...result1, ...result2, ...result3];
+  const uniqueDramas = deduplicateDramas(allDramas);
+
+  // 过滤：审核通过 + 集数>=40
+  const filteredDramas = uniqueDramas.filter((drama) => {
+    return drama.dy_audit_status === 3 && drama.episode_amount >= 40;
+  });
+
+  // 过滤出今天、明天、后天的剧集
+  const targetDramas = filteredDramas.filter((drama) => {
+    if (!drama.publish_time) return false;
+
+    const publishTime = dayjs(drama.publish_time).tz("Asia/Shanghai");
+    const publishDate = publishTime.startOf("day");
+
+    return (
+      publishDate.isSame(today, "day") ||
+      publishDate.isSame(tomorrow, "day") ||
+      publishDate.isSame(dayAfterTomorrow, "day")
+    );
+  });
+
+  return targetDramas;
+}
+
+/**
+ * 获取单页剧集数据
+ * 直接从常读平台API获取剧集列表，不依赖飞书表
+ */
+async function fetchDramaPage(pageIndex) {
+  const url = `${config.mainProjectApi}/novelsale/distributor/content/series/list/v1`;
+
+  logger.info(`请求剧集列表: 第${pageIndex + 1}页 `);
+  logger.info(`请求URL: ${url}`);
+
+  try {
+    const headers = {};
+    // if (globalCookie) {
+    //   headers.Cookie = globalCookie
+    // }
+
+    const response = await axios.get(url, {
+      params: {
+        page_size: 100,
+        permission_statuses: "3,4",
+        page_index: pageIndex,
+        // 不传 drama_list_table_id，直接从常读平台获取所有剧集
+      },
+      // headers,
+      timeout: 30000, // 30秒超时
+    });
+
+    logger.info(`API响应状态: ${response.status}`);
+    logger.info(
+      `响应code: ${response.data?.code}, message: ${response.data?.message}`,
+    );
+
+    if (response.data.code !== 0) {
+      throw new Error(
+        `获取剧集列表失败: ${response.data.message || "未知错误"}`,
+      );
+    }
+
+    const dramaData = response.data.data?.data || [];
+    logger.info(`第${pageIndex + 1}页获取到 ${dramaData.length} 个剧集`);
+
+    return dramaData;
+  } catch (error) {
+    logger.error(`请求失败: ${error.message}`);
+    if (error.response) {
+      logger.error(`响应状态: ${error.response.status}`);
+      logger.error(`响应数据: ${JSON.stringify(error.response.data)}`);
+    }
+    throw new Error(`获取剧集列表失败: ${error.message}`);
+  }
+}
+
+/**
+ * 获取下载任务列表
+ * 注意：此接口使用下载中心专用的headers，不依赖浏览器cookie
+ */
+async function fetchDownloadTasks() {
+  const now = dayjs().tz("Asia/Shanghai");
+  const startTime = Math.floor(now.subtract(30, "day").valueOf() / 1000);
+  const endTime = Math.floor(now.add(30, "day").valueOf() / 1000);
+
+  const url = `${config.changduBaseUrl}/node/api/platform/distributor/download_center/task_list`;
+
+  logger.info(`请求下载任务列表: ${url}`);
+  logger.info("使用下载中心专用headers");
+
+  try {
+    // 使用下载中心专用的请求头配置
+    const headers = {
+      ...config.downloadCenterHeaders,
+    };
+
+    // 打印Cookie长度用于调试
+    if (headers.Cookie) {
+      logger.info(`使用下载中心专用Cookie (长度: ${headers.Cookie.length})`);
+    } else {
+      logger.warn("下载中心专用Cookie未配置，请检查环境变量DEFAULT_COOKIE");
+    }
+
+    const response = await axios.get(url, {
+      params: {
+        start_time: startTime,
+        end_time: endTime,
+        page_index: 0,
+        page_size: 20000,
+      },
+      headers,
+      timeout: 30000,
+    });
+
+    logger.info(`下载任务API响应状态: ${response.status}`);
+    logger.info(`响应code: ${response.data?.code}`);
+
+    if (response.data.code !== 0) {
+      throw new Error(
+        `获取下载任务列表失败: ${response.data.message || "未知错误"}`,
+      );
+    }
+
+    const tasks = response.data.data || [];
+    logger.info(`获取到 ${tasks.length} 个下载任务`);
+
+    return tasks;
+  } catch (error) {
+    logger.error(`请求下载任务失败: ${error.message}`);
+    if (error.response) {
+      logger.error(`响应状态: ${error.response.status}`);
+      logger.error(`响应数据: ${JSON.stringify(error.response.data)}`);
+    }
+    throw new Error(`获取下载任务列表失败: ${error.message}`);
+  }
+}
+
+/**
+ * 去重剧集（根据book_id）
+ */
+function deduplicateDramas(dramas) {
+  const seen = new Set();
+  return dramas.filter((drama) => {
+    if (seen.has(drama.book_id)) {
+      return false;
+    }
+    seen.add(drama.book_id);
+    return true;
+  });
+}
+
+/**
+ * 按发布时间排序剧集：今天 > 明天 > 后天
+ * 同一天内按照发布时间升序排列
+ */
+function sortDramasByPublishTime(dramas) {
+  const now = dayjs().tz("Asia/Shanghai");
+  const today = now.startOf("day");
+  const tomorrow = today.add(1, "day");
+  const dayAfterTomorrow = today.add(2, "day");
+
+  return dramas.slice().sort((a, b) => {
+    const aPublishTime = dayjs(a.publish_time).tz("Asia/Shanghai");
+    const bPublishTime = dayjs(b.publish_time).tz("Asia/Shanghai");
+    const aPublishDate = aPublishTime.startOf("day");
+    const bPublishDate = bPublishTime.startOf("day");
+
+    // 判断是今天、明天还是后天
+    const aIsToday = aPublishDate.isSame(today, "day");
+    const aIsTomorrow = aPublishDate.isSame(tomorrow, "day");
+    const bIsToday = bPublishDate.isSame(today, "day");
+    const bIsTomorrow = bPublishDate.isSame(tomorrow, "day");
+
+    // 优先级：今天 > 明天 > 后天
+    if (aIsToday && !bIsToday) return -1;
+    if (!aIsToday && bIsToday) return 1;
+    if (aIsTomorrow && !bIsTomorrow && !bIsToday) return -1;
+    if (!aIsTomorrow && bIsTomorrow && !aIsToday) return 1;
+
+    // 同一天内，按照发布时间升序
+    return aPublishTime.valueOf() - bPublishTime.valueOf();
+  });
+}
+
+/**
+ * 筛选出待处理的剧集
+ * 条件：没有下载任务 或 下载任务状态为失败(3)
+ */
+function filterPendingDramas(dramaList, downloadTasks) {
+  // 创建剧名到下载任务的映射
+  const taskMap = new Map();
+  downloadTasks.forEach((task) => {
+    const name = task.book_name?.trim();
+    if (name) {
+      const existing = taskMap.get(name);
+
+      // 如果有多个任务，优先级：成功(2) > 处理中(1) > 失败(3) > 待处理(0)
+      // 只要有一个成功或处理中的任务，就不需要重新下载
+      if (!existing) {
+        taskMap.set(name, task);
+      } else {
+        // 如果新任务是成功(2)或处理中(1)，替换现有任务
+        if (task.task_status === 2 || task.task_status === 1) {
+          taskMap.set(name, task);
+        }
+        // 如果现有任务是失败(3)或待处理(0)，但新任务状态更好，也替换
+        else if (
+          (existing.task_status === 3 || existing.task_status === 0) &&
+          task.task_status > existing.task_status
+        ) {
+          taskMap.set(name, task);
+        }
+      }
+    }
+  });
+
+  // 筛选剧集
+  return dramaList.filter((drama) => {
+    const name = drama.series_name?.trim();
+    if (!name) return false;
+
+    const task = taskMap.get(name);
+
+    // 没有下载任务，或者任务状态为失败(3)或待处理(0)
+    // 如果任务状态是成功(2)或处理中(1)，则不需要重新下载
+    if (!task || task.task_status === 3 || task.task_status === 0) {
+      return true;
+    }
+
+    return false;
+  });
+}
