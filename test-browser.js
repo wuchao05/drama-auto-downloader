@@ -1,12 +1,11 @@
 // 测试浏览器是否能正常启动
-import puppeteer from 'puppeteer'
+import { chromium } from 'playwright'
 
 async function testBrowser() {
   console.log('正在启动浏览器...')
 
-  const browser = await puppeteer.launch({
+  const browser = await chromium.launch({
     headless: false,
-    args: ['--no-sandbox', '--disable-setuid-sandbox'],
   })
 
   console.log('✓ 浏览器启动成功')

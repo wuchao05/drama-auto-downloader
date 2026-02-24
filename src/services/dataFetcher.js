@@ -95,6 +95,14 @@ export async function fetchPendingDramaIds() {
 }
 
 /**
+ * 延迟函数
+ * @param {number} ms - 延迟毫秒数
+ */
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
  * 获取今天、明天、后天的剧集列表
  */
 async function fetchDramaList() {
@@ -103,16 +111,21 @@ async function fetchDramaList() {
   const tomorrow = today.add(1, "day");
   const dayAfterTomorrow = today.add(2, "day");
 
-  // 并发请求3页数据（不传drama_list_table_id，直接从常读平台获取所有剧集）
-  const [result1, result2, result3] = await Promise.all([
-    fetchDramaPage(0),
-    fetchDramaPage(1),
-    fetchDramaPage(2),
-  ]);
+  // 串行请求20页数据，每次请求间隔300ms
+  const allResults = [];
+  for (let i = 0; i < 20; i++) {
+    logger.info(`正在请求第 ${i + 1}/20 页...`);
+    const result = await fetchDramaPage(i);
+    allResults.push(...result);
 
-  // 合并并去重
-  const allDramas = [...result1, ...result2, ...result3];
-  const uniqueDramas = deduplicateDramas(allDramas);
+    // 最后一页不需要延迟
+    if (i < 19) {
+      await delay(300);
+    }
+  }
+
+  // 去重
+  const uniqueDramas = deduplicateDramas(allResults);
 
   // 过滤：审核通过 + 集数>=40
   const filteredDramas = uniqueDramas.filter((drama) => {

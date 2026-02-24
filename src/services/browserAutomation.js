@@ -1,9 +1,9 @@
-import puppeteer from "puppeteer";
+import { chromium } from "playwright";
 import { config } from "../config/index.js";
 import { logger } from "../utils/logger.js";
 
 /**
- * 延迟函数（替代已废弃的 page.waitForTimeout）
+ * 延迟函数
  * @param {number} ms - 延迟毫秒数
  */
 function delay(ms) {
@@ -15,7 +15,7 @@ function delay(ms) {
  */
 export class BrowserAutomation {
   constructor() {
-    this.browser = null;
+    this.context = null;
     this.page = null;
   }
 
@@ -25,29 +25,28 @@ export class BrowserAutomation {
   async init() {
     logger.info("正在启动浏览器...");
 
-    this.browser = await puppeteer.launch({
-      headless: config.browser.headless,
-      slowMo: config.browser.slowMo,
-      userDataDir: config.browser.userDataDir,
-      args: [
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-blink-features=AutomationControlled",
-        "--window-size=1280,800",
-      ],
-      defaultViewport: {
-        width: 1280,
-        height: 800,
+    this.context = await chromium.launchPersistentContext(
+      config.browser.userDataDir,
+      {
+        headless: config.browser.headless,
+        slowMo: config.browser.slowMo,
+        args: [
+          "--no-sandbox",
+          "--disable-setuid-sandbox",
+          "--disable-blink-features=AutomationControlled",
+          "--window-size=1280,800",
+        ],
+        viewport: {
+          width: 1280,
+          height: 800,
+        },
+        userAgent:
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
       },
-    });
-
-    const pages = await this.browser.pages();
-    this.page = pages[0] || (await this.browser.newPage());
-
-    // 设置user agent，模拟真实浏览器
-    await this.page.setUserAgent(
-      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     );
+
+    const pages = this.context.pages();
+    this.page = pages[0] || (await this.context.newPage());
 
     logger.info("浏览器启动成功");
   }
@@ -58,7 +57,7 @@ export class BrowserAutomation {
   async checkLoginStatus() {
     try {
       await this.page.goto(`${config.changduBaseUrl}/sale/short-play/list`, {
-        waitUntil: "networkidle2",
+        waitUntil: "networkidle",
         timeout: 30000,
       });
 
@@ -85,8 +84,8 @@ export class BrowserAutomation {
    * 获取Cookie
    */
   async getCookies() {
-    if (!this.page) return [];
-    return await this.page.cookies();
+    if (!this.context) return [];
+    return await this.context.cookies();
   }
 
   /**
@@ -105,7 +104,7 @@ export class BrowserAutomation {
     logger.info("等待中...");
 
     await this.page.goto(`${config.changduBaseUrl}/login`, {
-      waitUntil: "networkidle2",
+      waitUntil: "networkidle",
     });
 
     // 等待导航到非登录页（说明登录成功）
@@ -133,7 +132,7 @@ export class BrowserAutomation {
       // 1. 打开短剧详情页
       const dramaUrl = `${config.changduBaseUrl}/sale/short-play/list/detail?id=${dramaId}`;
       await this.page.goto(dramaUrl, {
-        waitUntil: "networkidle2",
+        waitUntil: "networkidle",
         timeout: 30000,
       });
 
@@ -246,8 +245,8 @@ export class BrowserAutomation {
    * 关闭浏览器
    */
   async close() {
-    if (this.browser) {
-      await this.browser.close();
+    if (this.context) {
+      await this.context.close();
       logger.info("浏览器已关闭");
     }
   }
