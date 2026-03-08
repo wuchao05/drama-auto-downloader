@@ -5,7 +5,8 @@
 ```bash
 cd /Users/wuchao/Documents/code/guazai/drama-auto-downloader
 pnpm install
-npx puppeteer browsers install chrome
+# 可选：若本机没有 Chrome，再安装 Playwright 内置浏览器
+pnpm exec playwright install chromium
 ```
 
 ## 第二步：测试环境
@@ -113,8 +114,8 @@ tail -f logs/error.log
 ### 问题1：浏览器找不到
 
 ```bash
-# 重新安装Chrome
-npx puppeteer browsers install chrome
+# 安装 Playwright 内置浏览器
+pnpm exec playwright install chromium
 ```
 
 ### 问题2：主项目连接失败

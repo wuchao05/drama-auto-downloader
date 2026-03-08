@@ -1,4 +1,6 @@
 import { chromium } from "playwright";
+import fs from "node:fs";
+import path from "node:path";
 import { config } from "../config/index.js";
 import { logger } from "../utils/logger.js";
 
@@ -8,6 +10,86 @@ import { logger } from "../utils/logger.js";
  */
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * 获取可用的浏览器可执行文件路径
+ * 优先级：环境变量配置 > Windows 常见安装路径（Edge优先） > Playwright 内置浏览器
+ * @returns {string} 可执行文件路径，空字符串表示使用 Playwright 内置浏览器
+ */
+function resolveExecutablePath() {
+  const configuredPath = config.browser.executablePath?.trim();
+  if (configuredPath) {
+    if (fs.existsSync(configuredPath)) {
+      return configuredPath;
+    }
+    logger.warn(
+      `配置的 BROWSER_EXECUTABLE_PATH 不存在: ${configuredPath}，将尝试自动探测`,
+    );
+  }
+
+  if (process.platform !== "win32") {
+    return "";
+  }
+
+  const programFiles = process.env.ProgramFiles || process.env.PROGRAMFILES;
+  const programFilesX86 =
+    process.env["ProgramFiles(x86)"] || process.env["PROGRAMFILES(X86)"];
+  const localAppData = process.env.LOCALAPPDATA;
+
+  const candidates = [
+    programFiles
+      ? path.join(
+          programFiles,
+          "Microsoft",
+          "Edge",
+          "Application",
+          "msedge.exe",
+        )
+      : "",
+    programFilesX86
+      ? path.join(
+          programFilesX86,
+          "Microsoft",
+          "Edge",
+          "Application",
+          "msedge.exe",
+        )
+      : "",
+    localAppData
+      ? path.join(
+          localAppData,
+          "Microsoft",
+          "Edge",
+          "Application",
+          "msedge.exe",
+        )
+      : "",
+    programFiles
+      ? path.join(programFiles, "Google", "Chrome", "Application", "chrome.exe")
+      : "",
+    programFilesX86
+      ? path.join(
+          programFilesX86,
+          "Google",
+          "Chrome",
+          "Application",
+          "chrome.exe",
+        )
+      : "",
+    localAppData
+      ? path.join(
+          localAppData,
+          "Google",
+          "Chrome",
+          "Application",
+          "chrome.exe",
+        )
+      : "",
+  ].filter(Boolean);
+
+  const matchedPath = candidates.find((candidate) => fs.existsSync(candidate));
+  return matchedPath || "";
 }
 
 /**
@@ -25,30 +107,76 @@ export class BrowserAutomation {
   async init() {
     logger.info("正在启动浏览器...");
 
-    this.context = await chromium.launchPersistentContext(
-      config.browser.userDataDir,
-      {
-        headless: config.browser.headless,
-        slowMo: config.browser.slowMo,
-        args: [
-          "--no-sandbox",
-          "--disable-setuid-sandbox",
-          "--disable-blink-features=AutomationControlled",
-          "--window-size=1280,800",
-        ],
-        viewport: {
-          width: 1280,
-          height: 800,
-        },
-        userAgent:
-          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    const executablePath = resolveExecutablePath();
+    const args = [
+      "--disable-blink-features=AutomationControlled",
+      "--window-size=1280,800",
+    ];
+    // 仅 Linux 需要 no-sandbox 相关参数，Windows 保持默认更稳定
+    if (process.platform === "linux") {
+      args.unshift("--no-sandbox", "--disable-setuid-sandbox");
+    }
+
+    const baseLaunchOptions = {
+      headless: config.browser.headless,
+      slowMo: config.browser.slowMo,
+      args,
+      viewport: {
+        width: 1280,
+        height: 800,
       },
-    );
+      userAgent:
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    };
+
+    const launchPlans = [];
+    if (executablePath) {
+      launchPlans.push({
+        name: `本机浏览器路径 (${executablePath})`,
+        options: { ...baseLaunchOptions, executablePath },
+      });
+    }
+
+    if (process.platform === "win32") {
+      launchPlans.push({
+        name: "系统 Edge channel",
+        options: { ...baseLaunchOptions, channel: "msedge" },
+      });
+      launchPlans.push({
+        name: "系统 Chrome channel",
+        options: { ...baseLaunchOptions, channel: "chrome" },
+      });
+    }
+
+    launchPlans.push({
+      name: "Playwright 内置浏览器",
+      options: { ...baseLaunchOptions },
+    });
+
+    let lastError = null;
+    for (const plan of launchPlans) {
+      try {
+        logger.info(`尝试启动方式: ${plan.name}`);
+        this.context = await chromium.launchPersistentContext(
+          config.browser.userDataDir,
+          plan.options,
+        );
+        logger.info(`浏览器启动成功，使用方式: ${plan.name}`);
+        break;
+      } catch (error) {
+        lastError = error;
+        logger.warn(`启动失败(${plan.name}): ${error.message}`);
+      }
+    }
+
+    if (!this.context) {
+      throw lastError || new Error("浏览器启动失败：所有启动方式均不可用");
+    }
 
     const pages = this.context.pages();
     this.page = pages[0] || (await this.context.newPage());
 
-    logger.info("浏览器启动成功");
+    logger.info("浏览器上下文初始化完成");
   }
 
   /**

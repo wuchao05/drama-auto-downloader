@@ -1,6 +1,6 @@
 # 短剧自动下载服务
 
-自动化下载短剧的独立服务，使用 Puppeteer 控制浏览器自动执行批量下载操作。
+自动化下载短剧的独立服务，使用 Playwright 控制浏览器自动执行批量下载操作。
 
 ## 功能特性
 
@@ -52,8 +52,9 @@ cd drama-auto-downloader
 # 安装依赖
 pnpm install
 
-# 安装Chrome浏览器（Puppeteer需要）
-npx puppeteer browsers install chrome
+# 安装 Playwright 浏览器（可选）
+# 若本机已安装 Chrome，可跳过此步骤
+pnpm exec playwright install chromium
 ```
 
 ## 配置
@@ -80,6 +81,9 @@ BATCH_SIZE=6                 # 每次处理的剧集数量
 # 浏览器配置
 HEADLESS=false              # 是否使用无头模式（false=显示浏览器）
 SLOW_MO=100                 # 操作延迟（毫秒）
+BROWSER_USER_DATA_DIR=./browser-data
+# 可选：优先使用本机浏览器（Windows 示例）
+# BROWSER_EXECUTABLE_PATH=C:\Program Files\Google\Chrome\Application\chrome.exe
 
 # 下载中心专用配置（与changdu-web项目保持一致）
 # 用于下载中心API的认证，不依赖浏览器cookie
@@ -242,7 +246,7 @@ A: 删除 `browser-data/` 目录，重新启动服务，会提示重新登录。
 
 ```bash
 rm -rf browser-data/
-npm start
+pnpm start
 ```
 
 ### Q: 想在服务器上运行？
@@ -257,7 +261,7 @@ HEADLESS=true
 
 ## 技术栈
 
-- **Puppeteer** - 浏览器自动化
+- **Playwright** - 浏览器自动化
 - **node-cron** - 定时任务
 - **axios** - HTTP请求
 - **winston** - 日志记录

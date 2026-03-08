@@ -42,8 +42,8 @@ cd C:\Projects\drama-auto-downloader
 # 安装依赖
 pnpm install
 
-# 安装 Chrome 浏览器（Puppeteer 需要）
-npx puppeteer browsers install chrome
+# 可选：安装 Playwright 内置浏览器（如果本机 Chrome 不可用）
+pnpm exec playwright install chromium
 ```
 
 ## 配置
@@ -72,6 +72,9 @@ BATCH_SIZE=6
 # 浏览器配置
 HEADLESS=false
 SLOW_MO=100
+BROWSER_USER_DATA_DIR=./browser-data
+# 可选：手动指定 Chrome 路径（推荐）
+# BROWSER_EXECUTABLE_PATH=C:\Program Files\Google\Chrome\Application\chrome.exe
 
 # 下载中心专用配置（从 changdu-web 项目复制）
 APPID=40012555
@@ -127,16 +130,10 @@ npm start
 
 ### 1. Chrome 浏览器路径问题
 
-如果 Puppeteer 找不到 Chrome，可以手动指定路径。
+如果启动失败，优先在 `.env` 里设置：
 
-修改 `src/services/browserAutomation.js` 的 `init()` 方法：
-
-```javascript
-this.browser = await puppeteer.launch({
-  executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-  headless: config.browser.headless,
-  // ... 其他配置
-})
+```env
+BROWSER_EXECUTABLE_PATH=C:\Program Files\Google\Chrome\Application\chrome.exe
 ```
 
 ### 2. 路径问题
@@ -256,8 +253,8 @@ Windows 日志路径：
 
 3. **Chrome 启动失败**
    ```powershell
-   # 重新安装 Chrome
-   npx puppeteer browsers install chrome --force
+   # 安装 Playwright 内置浏览器
+   pnpm exec playwright install chromium
    ```
 
 ## 性能优化
