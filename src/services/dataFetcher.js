@@ -13,7 +13,7 @@ const CHANGDU_SERIES_LIST_PATH =
 const CHANGDU_SERIES_PAGE_SIZE = 100;
 const CHANGDU_SERIES_PAGE_INDEXES = [1, 2];
 const FIXED_USER_AGENT =
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36";
 
 /**
  * 全局Cookie存储（从浏览器获取）
@@ -148,19 +148,18 @@ async function fetchDramaList() {
  * 直接从常读平台API获取剧集列表，不依赖飞书表
  */
 async function fetchDramaPage(pageIndex) {
-  const requestPath = await buildChangduSeriesRequestPath(pageIndex);
-  const url = `${config.changduBaseUrl}${requestPath}`;
+  const requestUrl = await buildChangduSeriesRequestUrl(pageIndex);
 
   logger.info(`请求剧集列表: 第${pageIndex}页`);
-  logger.info(`请求URL: ${url}`);
 
   try {
     const headers = await buildChangduSeriesHeaders();
+    logger.info(`请求URL: ${requestUrl}`);
     logger.info(
       `剧集列表请求头: ${JSON.stringify(headers, null, 2)}`,
     );
 
-    const response = await axios.get(url, {
+    const response = await axios.get(requestUrl, {
       headers,
       timeout: 30000,
     });
@@ -247,24 +246,21 @@ function buildChangduSeriesQuery(pageIndex) {
 }
 
 /**
- * 构建带 a_bogus 的常读剧集列表请求路径
+ * 构建与主项目一致的常读剧集列表请求URL
  */
-async function buildChangduSeriesRequestPath(pageIndex) {
-  const queryEntries = buildChangduSeriesQuery(pageIndex);
-  const queryString = queryEntries
-    .map(([key, value]) => `${key}=${value}`)
-    .join("&");
-  const rawPath = `${CHANGDU_SERIES_LIST_PATH}?${queryString}`;
-  const encodedABogus = await generateEncodedABogus(rawPath);
+async function buildChangduSeriesRequestUrl(pageIndex) {
+  const params = Object.fromEntries(buildChangduSeriesQuery(pageIndex));
+  const { requestPath, encodedABogus } = await generateChangduABogus(params);
+  const separator = requestPath.includes("?") ? "&" : "?";
 
-  return `${rawPath}&a_bogus=${encodedABogus}`;
+  return `${config.changduBaseUrl}${requestPath}${separator}a_bogus=${encodedABogus}`;
 }
 
 /**
- * 调用服务端接口生成并编码 a_bogus
+ * 调用服务端接口生成与主项目一致的 a_bogus 结果
  */
-async function generateEncodedABogus(requestPath) {
-  const { url, params } = buildABogusRequestPayload(requestPath);
+async function generateChangduABogus(params) {
+  const url = `${config.changduBaseUrl}${CHANGDU_SERIES_LIST_PATH}`;
 
   try {
     const response = await axios.post(
@@ -284,31 +280,20 @@ async function generateEncodedABogus(requestPath) {
       throw new Error(response.data?.message || "a_bogus 服务返回失败");
     }
 
-    const rawABogus = response.data?.data?.a_bogus || "";
-    const encodedABogus = rawABogus ? encodeURIComponent(rawABogus) : "";
+    const requestPath = response.data?.data?.request_path || "";
+    const encodedABogus = response.data?.data?.encoded_a_bogus || "";
 
-    if (!encodedABogus) {
-      throw new Error("a_bogus 生成结果为空");
+    if (!requestPath || !encodedABogus) {
+      throw new Error("a_bogus 生成结果不完整");
     }
 
-    return encodedABogus;
+    return {
+      requestPath,
+      encodedABogus,
+    };
   } catch (error) {
     throw new Error(`生成 a_bogus 失败: ${error.message}`);
   }
-}
-
-/**
- * 构建 a_bogus 服务请求体
- */
-function buildABogusRequestPayload(requestPath) {
-  const url = `${config.changduBaseUrl}${CHANGDU_SERIES_LIST_PATH}`;
-  const requestUrl = new URL(`${config.changduBaseUrl}${requestPath}`);
-  const params = Object.fromEntries(requestUrl.searchParams.entries());
-
-  return {
-    url,
-    params,
-  };
 }
 
 /**
