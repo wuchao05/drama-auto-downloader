@@ -16,19 +16,6 @@ const FIXED_USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36";
 
 /**
- * 全局Cookie存储（从浏览器获取）
- */
-let globalCookie = "";
-
-/**
- * 设置全局Cookie
- * @param {string} cookie - Cookie字符串
- */
-export function setGlobalCookie(cookie) {
-  globalCookie = cookie;
-}
-
-/**
  * 获取需要处理的短剧ID列表
  * @returns {Promise<string[]>} 短剧ID数组
  */
@@ -145,7 +132,7 @@ async function fetchDramaList() {
 
 /**
  * 获取单页剧集数据
- * 直接从常读平台API获取剧集列表，不依赖飞书表
+ * 直接从常读平台内部接口获取剧集列表，不依赖飞书表
  */
 async function fetchDramaPage(pageIndex) {
   const requestUrl = await buildChangduSeriesRequestUrl(pageIndex);
@@ -328,7 +315,7 @@ async function fetchDownloadTasks() {
   const url = `${config.changduBaseUrl}/node/api/platform/distributor/download_center/task_list`;
 
   logger.info(`请求下载任务列表: ${url}`);
-    logger.info("使用下载中心专用headers");
+  logger.info("使用下载中心专用headers");
 
   try {
     // 使用下载中心专用的请求头配置

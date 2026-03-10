@@ -1,8 +1,5 @@
 import cron from "node-cron";
-import {
-  fetchPendingDramaIds,
-  setGlobalCookie,
-} from "./services/dataFetcher.js";
+import { fetchPendingDramaIds } from "./services/dataFetcher.js";
 import { BrowserAutomation } from "./services/browserAutomation.js";
 import { config } from "./config/index.js";
 import { logger } from "./utils/logger.js";
@@ -40,11 +37,6 @@ export class Scheduler {
       logger.warn("需要登录，等待手动登录...");
       await this.browserAutomation.waitForManualLogin();
     }
-
-    // 获取Cookie用于API调用
-    const cookieString = await this.browserAutomation.getCookieString();
-    setGlobalCookie(cookieString);
-    logger.info(`已获取Cookie用于API调用 (长度: ${cookieString.length})`);
 
     // 立即执行一次
     logger.info("立即执行一次任务...");

@@ -86,6 +86,7 @@ SLOW_MO=100                 # 操作延迟（毫秒）
 APPID=40012555
 APPTYPE=7
 DISTRIBUTORID=1842865091654731
+ADUSERID=380892546610362
 DEFAULT_COOKIE=你的下载中心专用Cookie
 
 # 日志级别
@@ -96,12 +97,52 @@ LOG_LEVEL=info
 
 #### 数据源说明
 
-本服务**直接从常读平台API获取剧集数据**，不依赖飞书表。工作流程：
+本服务**直接请求常读平台内部接口获取剧集数据**，不依赖飞书表。当前使用的是：
+
+- 剧集列表接口：`/novelsale/distributor/content/series/list/v1/`
+- `a_bogus` 生成接口：`${MAIN_PROJECT_API}/novelsale/a-bogus`
+
+工作流程：
 
 1. 从常读平台获取今天/明天/后天要发布的所有剧集
 2. 从下载中心获取已有的下载任务
 3. 对比筛选出需要处理的剧集
 4. 自动执行下载操作
+
+#### 常读内部接口请求策略
+
+剧集列表接口当前只保留一条可用实现：
+
+1. 先请求 `a-bogus` 服务
+2. 直接使用服务端返回的 `request_path`
+3. 直接使用服务端返回的 `encoded_a_bogus`
+4. 将两者拼成最终请求 URL，再请求常读内部接口
+
+请求头来源规则：
+
+- 优先使用 `.env` 中的 `APPID`、`APPTYPE`、`DISTRIBUTORID`、`ADUSERID`、`DEFAULT_COOKIE`
+- 如果缺少 `APPID`、`DISTRIBUTORID`、`ADUSERID`、`DEFAULT_COOKIE` 中任意一项，则自动请求 `https://cxyy.top/api/auth/config`
+- 远程配置使用 `platforms.changdu.sr` 下的 `appId`、`distributorId`、`adUserId`、`rootAdUserId`、`cookie`
+
+固定请求头：
+
+- `agw-js-conv: str`
+- `user-agent: Mozilla/5.0 ... Chrome/145.0.0.0 Safari/537.36`
+- `Accept: application/json, text/plain, */*`
+
+固定分页策略：
+
+- 默认并行请求第 `1`、`2` 页
+- 每页 `100` 条
+
+#### 之前为什么不成功
+
+排查过程中试过几条实现分支，已经全部收敛掉，只保留上面的可用方案。之前不稳定或失败，主要是这些原因：
+
+1. 手工在项目里重建最终 URL 时，`a_bogus` 的编码方式和主项目真实请求不完全一致。
+2. 直接使用原始 `a_bogus`、本地自行编码 `a_bogus`、或把 `params` 重新序列化，都会和主项目的最终请求产生细微差异。
+3. 常读内部接口对这些细节比较敏感，差一点就可能返回空响应或 `502`。
+4. 当前验证通过的实现，是直接复用 `a-bogus` 服务返回的 `request_path + encoded_a_bogus`，不在本项目里重复推导这部分结果。
 
 #### 下载中心专用配置
 
@@ -109,7 +150,7 @@ LOG_LEVEL=info
 
 **重要配置项：**
 
-- `APPID`、`APPTYPE`、`DISTRIBUTORID`：API认证所需的应用标识
+- `APPID`、`APPTYPE`、`DISTRIBUTORID`、`ADUSERID`：API认证所需的应用标识
 - `DEFAULT_COOKIE`：下载中心专用的Cookie，需要从changdu-web项目的`.env`文件中复制相同的值
 
 **如何获取 DEFAULT_COOKIE：**
