@@ -156,6 +156,9 @@ async function fetchDramaPage(pageIndex) {
 
   try {
     const headers = buildChangduSeriesHeaders();
+    logger.info(
+      `剧集列表请求头: ${JSON.stringify(headers, null, 2)}`,
+    );
 
     const response = await axios.get(url, {
       headers,
@@ -281,11 +284,8 @@ async function generateEncodedABogus(requestPath) {
       throw new Error(response.data?.message || "a_bogus 服务返回失败");
     }
 
-    const encodedABogus =
-      response.data?.data?.encoded_a_bogus ||
-      (response.data?.data?.a_bogus
-        ? encodeURIComponent(response.data.data.a_bogus)
-        : "");
+    const rawABogus = response.data?.data?.a_bogus || "";
+    const encodedABogus = rawABogus ? encodeURIComponent(rawABogus) : "";
 
     if (!encodedABogus) {
       throw new Error("a_bogus 生成结果为空");
