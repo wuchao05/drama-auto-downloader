@@ -211,11 +211,11 @@ async function buildChangduSeriesHeaders() {
     Aduserid,
     Cookie,
   } = await getDownloadCenterHeaders();
-  const resolvedCookie = globalCookie || Cookie || "";
+  const resolvedCookie = Cookie || "";
   const resolvedAdUserId = aduserid || Aduserid || "";
 
   if (resolvedCookie) {
-    logger.info(`使用常读后台Cookie (长度: ${resolvedCookie.length})`);
+    logger.info(`使用配置中的常读后台Cookie (长度: ${resolvedCookie.length})`);
   } else {
     logger.warn("常读后台Cookie为空，剧集列表请求可能失败");
   }
