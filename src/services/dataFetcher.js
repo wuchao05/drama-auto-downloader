@@ -2,7 +2,7 @@ import axios from "axios";
 import dayjs from "dayjs";
 import timezone from "dayjs/plugin/timezone.js";
 import utc from "dayjs/plugin/utc.js";
-import { config } from "../config/index.js";
+import { config, getDownloadCenterHeaders } from "../config/index.js";
 import { logger } from "../utils/logger.js";
 
 dayjs.extend(utc);
@@ -13,7 +13,7 @@ const CHANGDU_SERIES_LIST_PATH =
 const CHANGDU_SERIES_PAGE_SIZE = 100;
 const CHANGDU_SERIES_PAGE_INDEXES = [1, 2];
 const FIXED_USER_AGENT =
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36";
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
 /**
  * 全局Cookie存储（从浏览器获取）
@@ -155,7 +155,7 @@ async function fetchDramaPage(pageIndex) {
   logger.info(`请求URL: ${url}`);
 
   try {
-    const headers = buildChangduSeriesHeaders();
+    const headers = await buildChangduSeriesHeaders();
     logger.info(
       `剧集列表请求头: ${JSON.stringify(headers, null, 2)}`,
     );
@@ -202,7 +202,7 @@ async function fetchDramaPage(pageIndex) {
 /**
  * 构建常读剧集列表请求头
  */
-function buildChangduSeriesHeaders() {
+async function buildChangduSeriesHeaders() {
   const {
     appid,
     apptype,
@@ -210,7 +210,7 @@ function buildChangduSeriesHeaders() {
     aduserid,
     Aduserid,
     Cookie,
-  } = config.downloadCenterHeaders;
+  } = await getDownloadCenterHeaders();
   const resolvedCookie = globalCookie || Cookie || "";
   const resolvedAdUserId = aduserid || Aduserid || "";
 
@@ -275,7 +275,7 @@ async function generateEncodedABogus(requestPath) {
         params,
       },
       {
-        headers: buildABogusHeaders(),
+        headers: await buildABogusHeaders(),
         timeout: 30000,
       },
     );
@@ -314,13 +314,13 @@ function buildABogusRequestPayload(requestPath) {
 /**
  * 构建 a_bogus 服务请求头
  */
-function buildABogusHeaders() {
+async function buildABogusHeaders() {
   const {
     appid,
     distributorid,
     aduserid,
     Aduserid,
-  } = config.downloadCenterHeaders;
+  } = await getDownloadCenterHeaders();
   const resolvedAdUserId = aduserid || Aduserid || "";
 
   return {
@@ -343,12 +343,12 @@ async function fetchDownloadTasks() {
   const url = `${config.changduBaseUrl}/node/api/platform/distributor/download_center/task_list`;
 
   logger.info(`请求下载任务列表: ${url}`);
-  logger.info("使用下载中心专用headers");
+    logger.info("使用下载中心专用headers");
 
   try {
     // 使用下载中心专用的请求头配置
     const headers = {
-      ...config.downloadCenterHeaders,
+      ...(await getDownloadCenterHeaders()),
     };
 
     // 打印Cookie长度用于调试
