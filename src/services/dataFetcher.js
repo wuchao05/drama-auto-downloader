@@ -8,6 +8,13 @@ import { logger } from "../utils/logger.js";
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
+const CHANGDU_SERIES_LIST_PATH =
+  "/novelsale/distributor/content/series/list/v1/";
+const CHANGDU_SERIES_PAGE_SIZE = 100;
+const CHANGDU_SERIES_PAGE_INDEXES = [1, 2];
+const FIXED_USER_AGENT =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36";
+
 /**
  * 全局Cookie存储（从浏览器获取）
  */
@@ -95,14 +102,6 @@ export async function fetchPendingDramaIds() {
 }
 
 /**
- * 延迟函数
- * @param {number} ms - 延迟毫秒数
- */
-function delay(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/**
  * 获取今天、明天、后天的剧集列表
  */
 async function fetchDramaList() {
@@ -111,18 +110,13 @@ async function fetchDramaList() {
   const tomorrow = today.add(1, "day");
   const dayAfterTomorrow = today.add(2, "day");
 
-  // 串行请求20页数据，每次请求间隔300ms
-  const allResults = [];
-  for (let i = 0; i < 20; i++) {
-    logger.info(`正在请求第 ${i + 1}/20 页...`);
-    const result = await fetchDramaPage(i);
-    allResults.push(...result);
-
-    // 最后一页不需要延迟
-    if (i < 19) {
-      await delay(300);
-    }
-  }
+  logger.info(
+    `并行请求剧集列表页: ${CHANGDU_SERIES_PAGE_INDEXES.join(", ")}，每页 ${CHANGDU_SERIES_PAGE_SIZE} 条`,
+  );
+  const pageResults = await Promise.all(
+    CHANGDU_SERIES_PAGE_INDEXES.map((pageIndex) => fetchDramaPage(pageIndex)),
+  );
+  const allResults = pageResults.flat();
 
   // 去重
   const uniqueDramas = deduplicateDramas(allResults);
@@ -154,32 +148,33 @@ async function fetchDramaList() {
  * 直接从常读平台API获取剧集列表，不依赖飞书表
  */
 async function fetchDramaPage(pageIndex) {
-  const url = `${config.mainProjectApi}/novelsale/distributor/content/series/list/v1`;
+  const requestPath = await buildChangduSeriesRequestPath(pageIndex);
+  const url = `${config.changduBaseUrl}${requestPath}`;
 
-  logger.info(`请求剧集列表: 第${pageIndex + 1}页 `);
+  logger.info(`请求剧集列表: 第${pageIndex}页`);
   logger.info(`请求URL: ${url}`);
 
   try {
-    const headers = {};
-    // if (globalCookie) {
-    //   headers.Cookie = globalCookie
-    // }
+    const headers = buildChangduSeriesHeaders();
 
     const response = await axios.get(url, {
-      params: {
-        page_size: 100,
-        permission_statuses: "3,4",
-        page_index: pageIndex,
-        // 不传 drama_list_table_id，直接从常读平台获取所有剧集
-      },
-      // headers,
-      timeout: 30000, // 30秒超时
+      headers,
+      timeout: 30000,
     });
 
     logger.info(`API响应状态: ${response.status}`);
     logger.info(
       `响应code: ${response.data?.code}, message: ${response.data?.message}`,
     );
+
+    if (
+      typeof response.data === "string" &&
+      response.data.trim().length === 0
+    ) {
+      throw new Error(
+        "常读内部接口返回空响应，请检查 Cookie 是否有效，或确认当前主体是否有权限访问该接口",
+      );
+    }
 
     if (response.data.code !== 0) {
       throw new Error(
@@ -188,7 +183,7 @@ async function fetchDramaPage(pageIndex) {
     }
 
     const dramaData = response.data.data?.data || [];
-    logger.info(`第${pageIndex + 1}页获取到 ${dramaData.length} 个剧集`);
+    logger.info(`第${pageIndex}页获取到 ${dramaData.length} 个剧集`);
 
     return dramaData;
   } catch (error) {
@@ -199,6 +194,141 @@ async function fetchDramaPage(pageIndex) {
     }
     throw new Error(`获取剧集列表失败: ${error.message}`);
   }
+}
+
+/**
+ * 构建常读剧集列表请求头
+ */
+function buildChangduSeriesHeaders() {
+  const {
+    appid,
+    apptype,
+    distributorid,
+    aduserid,
+    Aduserid,
+    Cookie,
+  } = config.downloadCenterHeaders;
+  const resolvedCookie = globalCookie || Cookie || "";
+  const resolvedAdUserId = aduserid || Aduserid || "";
+
+  if (resolvedCookie) {
+    logger.info(`使用常读后台Cookie (长度: ${resolvedCookie.length})`);
+  } else {
+    logger.warn("常读后台Cookie为空，剧集列表请求可能失败");
+  }
+
+  return {
+    Cookie: resolvedCookie,
+    aduserid: String(resolvedAdUserId),
+    "agw-js-conv": "str",
+    appid: String(appid),
+    apptype: String(apptype),
+    distributorid: String(distributorid),
+    "user-agent": FIXED_USER_AGENT,
+    Accept: "application/json, text/plain, */*",
+  };
+}
+
+/**
+ * 构建常读剧集列表查询参数
+ */
+function buildChangduSeriesQuery(pageIndex) {
+  return [
+    ["permission_statuses", "3,4"],
+    ["sort_type", "1"],
+    ["sort_field", "3"],
+    ["aweme_user_new_version", "false"],
+    ["page_index", String(pageIndex)],
+    ["page_size", String(CHANGDU_SERIES_PAGE_SIZE)],
+  ];
+}
+
+/**
+ * 构建带 a_bogus 的常读剧集列表请求路径
+ */
+async function buildChangduSeriesRequestPath(pageIndex) {
+  const queryEntries = buildChangduSeriesQuery(pageIndex);
+  const queryString = queryEntries
+    .map(([key, value]) => `${key}=${value}`)
+    .join("&");
+  const rawPath = `${CHANGDU_SERIES_LIST_PATH}?${queryString}`;
+  const encodedABogus = await generateEncodedABogus(rawPath);
+
+  return `${rawPath}&a_bogus=${encodedABogus}`;
+}
+
+/**
+ * 调用服务端接口生成并编码 a_bogus
+ */
+async function generateEncodedABogus(requestPath) {
+  const { url, params } = buildABogusRequestPayload(requestPath);
+
+  try {
+    const response = await axios.post(
+      `${config.mainProjectApi}/novelsale/a-bogus`,
+      {
+        method: "GET",
+        url,
+        params,
+      },
+      {
+        headers: buildABogusHeaders(),
+        timeout: 30000,
+      },
+    );
+
+    if (response.data?.code !== 0) {
+      throw new Error(response.data?.message || "a_bogus 服务返回失败");
+    }
+
+    const encodedABogus =
+      response.data?.data?.encoded_a_bogus ||
+      (response.data?.data?.a_bogus
+        ? encodeURIComponent(response.data.data.a_bogus)
+        : "");
+
+    if (!encodedABogus) {
+      throw new Error("a_bogus 生成结果为空");
+    }
+
+    return encodedABogus;
+  } catch (error) {
+    throw new Error(`生成 a_bogus 失败: ${error.message}`);
+  }
+}
+
+/**
+ * 构建 a_bogus 服务请求体
+ */
+function buildABogusRequestPayload(requestPath) {
+  const url = `${config.changduBaseUrl}${CHANGDU_SERIES_LIST_PATH}`;
+  const requestUrl = new URL(`${config.changduBaseUrl}${requestPath}`);
+  const params = Object.fromEntries(requestUrl.searchParams.entries());
+
+  return {
+    url,
+    params,
+  };
+}
+
+/**
+ * 构建 a_bogus 服务请求头
+ */
+function buildABogusHeaders() {
+  const {
+    appid,
+    distributorid,
+    aduserid,
+    Aduserid,
+  } = config.downloadCenterHeaders;
+  const resolvedAdUserId = aduserid || Aduserid || "";
+
+  return {
+    appid: String(appid),
+    aduserid: String(resolvedAdUserId),
+    distributorid: String(distributorid),
+    "Content-Type": "application/json",
+  };
 }
 
 /**
