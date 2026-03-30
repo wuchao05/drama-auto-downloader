@@ -60,7 +60,7 @@ copy .env.example .env
 
 ```env
 # 主项目API地址
-MAIN_PROJECT_API=https://www.cxyy.top/api
+MAIN_PROJECT_API=https://cxyy.top/api
 
 # 常读后台地址
 CHANGDU_BASE_URL=https://www.changdupingtai.com
@@ -73,11 +73,15 @@ BATCH_SIZE=6
 HEADLESS=false
 SLOW_MO=100
 
-# 下载中心专用配置（从 changdu-web 项目复制）
-APPID=40012555
+# 下载中心专用配置
+# 默认会自动从 https://cxyy.top/api/public/download-center/default 拉取
+# 只有远程接口不可用时，才回退到下面这些本地兜底字段
+APPID=
 APPTYPE=7
-DISTRIBUTORID=1842865091654731
-DEFAULT_COOKIE=你的Cookie
+DISTRIBUTORID=
+ADUSERID=
+ROOT_ADUSERID=
+DEFAULT_COOKIE=
 
 # 日志级别
 LOG_LEVEL=info

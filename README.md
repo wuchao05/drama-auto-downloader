@@ -68,7 +68,7 @@ cp .env.example .env
 
 ```env
 # 主项目API地址（用于获取剧集数据）
-MAIN_PROJECT_API=https://www.cxyy.top/api
+MAIN_PROJECT_API=https://cxyy.top/api
 
 # 常读后台地址
 CHANGDU_BASE_URL=https://www.changdupingtai.com
@@ -81,13 +81,15 @@ BATCH_SIZE=6                 # 每次处理的剧集数量
 HEADLESS=false              # 是否使用无头模式（false=显示浏览器）
 SLOW_MO=100                 # 操作延迟（毫秒）
 
-# 下载中心专用配置（与changdu-web项目保持一致）
-# 用于下载中心API的认证，不依赖浏览器cookie
-APPID=40012555
+# 下载中心专用配置
+# 默认会自动从 https://cxyy.top/api/public/download-center/default 拉取
+# 只有远程接口不可用时，才回退到下面这些本地兜底字段
+APPID=
 APPTYPE=7
-DISTRIBUTORID=1842865091654731
-ADUSERID=380892546610362
-DEFAULT_COOKIE=你的下载中心专用Cookie
+DISTRIBUTORID=
+ADUSERID=
+ROOT_ADUSERID=
+DEFAULT_COOKIE=
 
 # 日志级别
 LOG_LEVEL=info
@@ -120,9 +122,9 @@ LOG_LEVEL=info
 
 请求头来源规则：
 
-- 优先使用 `.env` 中的 `APPID`、`APPTYPE`、`DISTRIBUTORID`、`ADUSERID`、`DEFAULT_COOKIE`
-- 如果缺少 `APPID`、`DISTRIBUTORID`、`ADUSERID`、`DEFAULT_COOKIE` 中任意一项，则自动请求 `https://cxyy.top/api/auth/config`
-- 远程配置使用 `platforms.changdu.sr` 下的 `appId`、`distributorId`、`adUserId`、`rootAdUserId`、`cookie`
+- 优先使用 `https://cxyy.top/api/public/download-center/default` 返回的默认下载中心配置
+- 远程配置使用 `appId`、`appType`、`distributorId`、`adUserId`、`rootAdUserId`、`cookie`
+- 如果远程接口不可用，再回退到 `.env` 中的 `APPID`、`APPTYPE`、`DISTRIBUTORID`、`ADUSERID`、`ROOT_ADUSERID`、`DEFAULT_COOKIE`
 
 固定请求头：
 
@@ -146,20 +148,18 @@ LOG_LEVEL=info
 
 #### 下载中心专用配置
 
-下载中心API使用专用的请求头配置，不依赖浏览器cookie。这与changdu-web项目保持一致。
+下载中心 API 使用专用的请求头配置，不依赖浏览器自动化登录态。这与 `changdu-web-new` 管理员后台里的“下载中心默认配置”保持一致。
 
-**重要配置项：**
+默认行为：
 
-- `APPID`、`APPTYPE`、`DISTRIBUTORID`、`ADUSERID`：API认证所需的应用标识
-- `DEFAULT_COOKIE`：下载中心专用的Cookie，需要从changdu-web项目的`.env`文件中复制相同的值
+- 服务会自动请求 `https://cxyy.top/api/public/download-center/default`
+- 返回的 `appId`、`appType`、`distributorId`、`adUserId`、`rootAdUserId`、`cookie` 会直接用于下载中心和剧集列表接口
 
-**如何获取 DEFAULT_COOKIE：**
+本地兜底：
 
-1. 找到changdu-web项目的`.env`文件
-2. 复制`DEFAULT_COOKIE`的值
-3. 粘贴到本项目的`.env`文件中
+- 只有当远程接口暂时不可用时，才会回退到 `.env` 中的 `APPID`、`APPTYPE`、`DISTRIBUTORID`、`ADUSERID`、`ROOT_ADUSERID`、`DEFAULT_COOKIE`
 
-这样可以确保下载中心API的认证独立于浏览器自动化流程，提高稳定性。
+这样可以确保接口请求头统一跟随后台默认配置，同时浏览器自动化仍然使用本地 `browser-data/` 保存的登录态。
 
 ### Cron 时间表达式说明
 

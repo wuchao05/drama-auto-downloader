@@ -17,7 +17,7 @@ function readEnvChangduHeaders() {
   };
 }
 
-function hasRequiredEnvHeaders(headers) {
+function hasRequiredHeaders(headers) {
   return Boolean(
     headers.appid &&
       headers.distributorid &&
@@ -27,7 +27,7 @@ function hasRequiredEnvHeaders(headers) {
 }
 
 async function fetchRemoteChangduHeaders(mainProjectApi) {
-  const response = await axios.get(`${mainProjectApi}/auth/config`, {
+  const response = await axios.get(`${mainProjectApi}/public/download-center/default`, {
     timeout: 30000,
   });
 
@@ -35,15 +35,15 @@ async function fetchRemoteChangduHeaders(mainProjectApi) {
     throw new Error(response.data?.message || '获取远程配置失败');
   }
 
-  const remote = response.data?.data?.platforms?.changdu?.sr;
+  const remote = response.data?.data;
 
   if (!remote) {
-    throw new Error('远程配置中缺少 platforms.changdu.sr');
+    throw new Error('远程配置中缺少下载中心默认配置');
   }
 
   return {
     appid: String(remote.appId || ''),
-    apptype: process.env.APPTYPE || '7',
+    apptype: String(remote.appType || process.env.APPTYPE || '7'),
     distributorid: String(remote.distributorId || ''),
     Aduserid: String(remote.adUserId || ''),
     Rootaduserid: String(remote.rootAdUserId || remote.adUserId || ''),
@@ -53,7 +53,7 @@ async function fetchRemoteChangduHeaders(mainProjectApi) {
 
 export const config = {
   // 主项目API
-  mainProjectApi: process.env.MAIN_PROJECT_API || 'https://www.cxyy.top/api',
+  mainProjectApi: process.env.MAIN_PROJECT_API || 'https://cxyy.top/api',
 
   // 常读后台
   changduBaseUrl: process.env.CHANGDU_BASE_URL || 'https://www.changdupingtai.com',
@@ -79,22 +79,28 @@ export const config = {
 export async function getDownloadCenterHeaders() {
   const envHeaders = readEnvChangduHeaders();
 
-  if (hasRequiredEnvHeaders(envHeaders)) {
-    return envHeaders;
-  }
-
   if (!remoteChangduConfigPromise) {
     remoteChangduConfigPromise = fetchRemoteChangduHeaders(config.mainProjectApi);
   }
 
-  const remoteHeaders = await remoteChangduConfigPromise;
+  try {
+    const remoteHeaders = await remoteChangduConfigPromise;
 
-  return {
-    appid: envHeaders.appid || remoteHeaders.appid,
-    apptype: envHeaders.apptype || remoteHeaders.apptype,
-    distributorid: envHeaders.distributorid || remoteHeaders.distributorid,
-    Aduserid: envHeaders.Aduserid || remoteHeaders.Aduserid,
-    Rootaduserid: envHeaders.Rootaduserid || remoteHeaders.Rootaduserid,
-    Cookie: envHeaders.Cookie || remoteHeaders.Cookie,
-  };
+    return {
+      appid: remoteHeaders.appid || envHeaders.appid,
+      apptype: remoteHeaders.apptype || envHeaders.apptype,
+      distributorid: remoteHeaders.distributorid || envHeaders.distributorid,
+      Aduserid: remoteHeaders.Aduserid || envHeaders.Aduserid,
+      Rootaduserid: remoteHeaders.Rootaduserid || envHeaders.Rootaduserid,
+      Cookie: remoteHeaders.Cookie || envHeaders.Cookie,
+    };
+  } catch (error) {
+    remoteChangduConfigPromise = null;
+
+    if (hasRequiredHeaders(envHeaders)) {
+      return envHeaders;
+    }
+
+    throw new Error(`获取下载中心请求头配置失败: ${error.message}`);
+  }
 }

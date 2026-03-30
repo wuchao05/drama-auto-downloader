@@ -26,7 +26,7 @@ async function testDataFetch() {
   } catch (error) {
     console.error('\n✗ 数据获取失败:', error.message)
     console.error('\n请确保：')
-    console.error('  1. 主项目服务可以访问（https://www.cxyy.top）')
+    console.error('  1. 主项目服务可以访问（https://cxyy.top）')
     console.error('  2. .env 文件配置正确')
     console.error('  3. 网络连接正常')
     console.error('  4. 已经登录常读后台（服务需要Cookie认证）\n')
