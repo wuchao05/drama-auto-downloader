@@ -46,14 +46,25 @@ async function fetchTenantAccessToken() {
 
 function normalizeDramaId(value) {
   if (Array.isArray(value)) {
-    return normalizeDramaId(value[0]);
+    return value.map((item) => normalizeDramaId(item)).join("").trim();
   }
 
   if (value && typeof value === "object") {
-    return String(value.text || value.name || value.value || "").trim();
+    for (const key of ["text", "name", "value", "link", "url"]) {
+      const normalized = normalizeDramaId(value[key]);
+      if (normalized) {
+        return normalized;
+      }
+    }
+
+    return "";
   }
 
   return String(value || "").trim();
+}
+
+function isValidDramaId(dramaId) {
+  return Boolean(dramaId && dramaId !== "[object Object]");
 }
 
 async function searchPendingRecordsInTable(tenantAccessToken, tableId) {
@@ -119,8 +130,10 @@ export async function fetchFeishuPendingDramas() {
       for (const record of records) {
         const dramaId = normalizeDramaId(record.fields?.[DRAMA_ID_FIELD]);
 
-        if (!dramaId) {
-          logger.warn(`飞书记录缺少短剧ID，跳过: table=${tableId}, record=${record.record_id}`);
+        if (!isValidDramaId(dramaId)) {
+          logger.warn(
+            `飞书记录短剧ID无效，跳过: table=${tableId}, record=${record.record_id}, raw=${JSON.stringify(record.fields?.[DRAMA_ID_FIELD])}`,
+          );
           continue;
         }
 
