@@ -17,11 +17,15 @@ const FIXED_USER_AGENT =
 
 /**
  * 获取需要处理的短剧ID列表
+ * @param {object} options
+ * @param {number} options.limit - 返回数量限制
+ * @param {string[]} options.excludeIds - 需要排除的短剧ID
  * @returns {Promise<string[]>} 短剧ID数组
  */
-export async function fetchPendingDramaIds() {
+export async function fetchPendingDramaIds({ limit = config.batchSize, excludeIds = [] } = {}) {
   try {
     logger.info("开始获取待处理剧集...");
+    const excludeIdSet = new Set(excludeIds.map((id) => String(id)));
 
     // 1. 获取今天、明天、后天的剧集列表
     const dramaList = await fetchDramaList();
@@ -50,9 +54,16 @@ export async function fetchPendingDramaIds() {
 
     // 4. 按照发布时间排序：今天 > 明天 > 后天
     const sortedDramas = sortDramasByPublishTime(pendingDramas);
+    const availableDramas = sortedDramas.filter(
+      (drama) => !excludeIdSet.has(String(drama.book_id)),
+    );
+
+    if (excludeIdSet.size > 0) {
+      logger.info(`已排除 ${excludeIdSet.size} 个本轮优先任务短剧ID`);
+    }
 
     // 5. 只取前N个（配置的批次大小）
-    const batchDramas = sortedDramas.slice(0, config.batchSize);
+    const batchDramas = availableDramas.slice(0, limit);
     const dramaIds = batchDramas.map((d) => d.book_id);
 
     // 打印详细的处理剧集信息

@@ -69,6 +69,20 @@ export const config = {
     userDataDir: './browser-data',
   },
 
+  // 飞书状态表配置
+  feishu: {
+    appId: process.env.FEISHU_APP_ID || '',
+    appSecret: process.env.FEISHU_APP_SECRET || '',
+    appToken: process.env.FEISHU_APP_TOKEN || '',
+    statusTableIds: [
+      'tblDOyi2Lzs80sv0',
+      'tbl2kpgxsb9i9tkC',
+      'tblYdtIXzH61XNIk',
+      'tbllfhvbuh475X9K',
+      'tblg78rCpr7h3IRD',
+    ],
+  },
+
   // 下载中心专用请求头配置（与changdu-web项目保持一致）
   downloadCenterHeaders: readEnvChangduHeaders(),
 

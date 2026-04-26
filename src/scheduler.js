@@ -1,5 +1,9 @@
 import cron from "node-cron";
 import { fetchPendingDramaIds } from "./services/dataFetcher.js";
+import {
+  fetchFeishuPendingDramas,
+  markFeishuDramaAsDownloading,
+} from "./services/feishuFetcher.js";
 import { BrowserAutomation } from "./services/browserAutomation.js";
 import { config } from "./config/index.js";
 import { logger } from "./utils/logger.js";
@@ -68,16 +72,37 @@ export class Scheduler {
       logger.info(`执行时间: ${new Date().toLocaleString("zh-CN")}`);
       logger.info("=".repeat(60));
 
-      // 1. 获取待处理的短剧ID
-      const dramaIds = await fetchPendingDramaIds();
+      // 1. 优先获取用户飞书状态表中的待提交短剧
+      const feishuTasks = await this.fetchPriorityFeishuTasks();
+      const selectedFeishuTasks = feishuTasks.slice(0, config.batchSize);
+      const feishuDramaIds = selectedFeishuTasks.map((task) => task.dramaId);
+      const remainingBatchSize = config.batchSize - selectedFeishuTasks.length;
+
+      if (selectedFeishuTasks.length > 0) {
+        logger.info(`本轮优先处理飞书待提交短剧 ${selectedFeishuTasks.length} 个`);
+      }
+
+      // 2. 飞书任务不足批次上限时，使用原常读流程补足剩余额度
+      const normalDramaIds =
+        remainingBatchSize > 0
+          ? await fetchPendingDramaIds({
+              limit: remainingBatchSize,
+              excludeIds: feishuDramaIds,
+            })
+          : [];
+
+      const dramaIds = [...feishuDramaIds, ...normalDramaIds];
 
       if (dramaIds.length === 0) {
         logger.info("没有需要处理的短剧，本次任务结束");
         return;
       }
 
-      // 2. 执行浏览器自动化下载
-      await this.browserAutomation.processDramas(dramaIds);
+      // 3. 执行浏览器自动化下载
+      const results = await this.browserAutomation.processDramas(dramaIds);
+
+      // 4. 飞书来源任务提交成功后，更新状态为待下载
+      await this.updateCompletedFeishuTasks(selectedFeishuTasks, results);
 
       logger.info("=".repeat(60));
       logger.info("任务执行完成");
@@ -87,6 +112,43 @@ export class Scheduler {
       logger.error(error.stack);
     } finally {
       this.isRunning = false;
+    }
+  }
+
+  async fetchPriorityFeishuTasks() {
+    try {
+      return await fetchFeishuPendingDramas();
+    } catch (error) {
+      logger.error(`获取飞书待提交短剧失败，将继续执行常读正常流程: ${error.message}`);
+      return [];
+    }
+  }
+
+  async updateCompletedFeishuTasks(feishuTasks, results) {
+    if (!feishuTasks.length || !results?.length) {
+      return;
+    }
+
+    const successfulDramaIds = new Set(
+      results
+        .filter((result) => result.success)
+        .map((result) => String(result.dramaId)),
+    );
+
+    for (const task of feishuTasks) {
+      if (!successfulDramaIds.has(String(task.dramaId))) {
+        logger.warn(`飞书短剧 ${task.dramaId} 未提交成功，保持待提交状态`);
+        continue;
+      }
+
+      try {
+        await markFeishuDramaAsDownloading(task);
+        logger.info(`飞书记录已更新为待下载: dramaId=${task.dramaId}, record=${task.recordId}`);
+      } catch (error) {
+        logger.error(
+          `更新飞书记录状态失败: dramaId=${task.dramaId}, record=${task.recordId}, error=${error.message}`,
+        );
+      }
     }
   }
 
