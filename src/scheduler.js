@@ -74,9 +74,8 @@ export class Scheduler {
 
       // 1. 优先获取用户飞书状态表中的待提交短剧
       const feishuTasks = await this.fetchPriorityFeishuTasks();
-      const selectedFeishuTasks = feishuTasks.slice(0, config.batchSize);
-      const feishuDramaIds = selectedFeishuTasks.map((task) => task.dramaId);
-      const remainingBatchSize = config.batchSize - selectedFeishuTasks.length;
+      const { selectedFeishuTasks, feishuDramaIds } = this.selectFeishuTasks(feishuTasks);
+      const remainingBatchSize = config.batchSize - feishuDramaIds.length;
 
       if (selectedFeishuTasks.length > 0) {
         logger.info(`本轮优先处理飞书待提交短剧 ${selectedFeishuTasks.length} 个`);
@@ -122,6 +121,31 @@ export class Scheduler {
       logger.error(`获取飞书待提交短剧失败，将继续执行常读正常流程: ${error.message}`);
       return [];
     }
+  }
+
+  selectFeishuTasks(feishuTasks) {
+    const selectedDramaIdSet = new Set();
+    const feishuDramaIds = [];
+
+    for (const task of feishuTasks) {
+      const dramaId = String(task.dramaId);
+      if (selectedDramaIdSet.has(dramaId)) {
+        continue;
+      }
+
+      selectedDramaIdSet.add(dramaId);
+      feishuDramaIds.push(task.dramaId);
+
+      if (feishuDramaIds.length >= config.batchSize) {
+        break;
+      }
+    }
+
+    const selectedFeishuTasks = feishuTasks.filter((task) =>
+      selectedDramaIdSet.has(String(task.dramaId)),
+    );
+
+    return { selectedFeishuTasks, feishuDramaIds };
   }
 
   async updateCompletedFeishuTasks(feishuTasks, results) {
